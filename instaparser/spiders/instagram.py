@@ -64,6 +64,22 @@ class InstagramSpider(scrapy.Spider):
         str_variables = self.make_str_variables(variables)
         url = f"{self.graphql_url}query_hash={self.subscribers_hash}&variables={str_variables}"
 
+        yield response.follow(
+            url,
+            callback='',
+            cb_kwargs={
+                "username": username,
+                "user_id": user_id,
+                'variables': deepcopy(variables),
+            }
+
+        )
+
+    def get_user_subscr(self, response: HtmlResponse, username, user_id, variables):
+        print()
+
+        data = response.json()
+
 
 
     # прокручиваем страницу по 12 постов с конца до начала
