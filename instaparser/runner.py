@@ -25,4 +25,5 @@ if __name__ == '__main__':
         for j in hash_list:
             process.crawl(InstagramSpider, i, j)
 
+
     process.start()
