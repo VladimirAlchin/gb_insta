@@ -7,6 +7,7 @@ from pprint import pprint
 from urllib.parse import quote
 from copy import deepcopy
 from instaparser.items import InstaparserItem
+from datetime import datetime
 
 
 class InstagramSpider(scrapy.Spider):
@@ -21,7 +22,10 @@ class InstagramSpider(scrapy.Spider):
     user_to_parse_url_template = "/%s"
     user_to_parse = "vladimiralchin"
     posts_hash = "32b14723a678bd4628d70c1f877b94c9"
+    # кто подписан на пользователя
     subscribers_hash = '5aefa9893005572d237da5068082d8d5'
+    # на кого подписан пользователь
+    subscrib_hash = '3dec7e2c57367ef3da3d987d89f9dbc8'
     graphql_url = "https://www.instagram.com/graphql/query/?"
 
     # авторизуемся на странице инсты
@@ -40,8 +44,9 @@ class InstagramSpider(scrapy.Spider):
             }
         )
 
-    # проверяем прошла ли авторизация, если прошла идем получать все посты
+    # проверяем прошла ли авторизация, если прошла идем получать данные
     def user_login(self, response: HtmlResponse):
+        date_load = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         data = response.json()
         if data['authenticated']:
             yield response.follow(
@@ -51,10 +56,11 @@ class InstagramSpider(scrapy.Spider):
                 callback=self.get_user_subscribers,
                 cb_kwargs={
                     "username": self.user_to_parse,
+                    "date_load": date_load,
                 }
             )
 
-    def get_user_subscribers(self, response: HtmlResponse, username):
+    def get_user_subscribers(self, response: HtmlResponse, username, date_load):
         # итог variables={"id":"3098502418","include_reel":true,"fetch_mutual":true,"first":24}
         user_id = self.fetch_user_id(response.text, username)
         variables = {
@@ -66,19 +72,52 @@ class InstagramSpider(scrapy.Spider):
 
         yield response.follow(
             url,
-            callback='',
+            callback=self.get_user_subscr,
             cb_kwargs={
                 "username": username,
                 "user_id": user_id,
                 'variables': deepcopy(variables),
+                "date_load": date_load,
             }
 
         )
 
-    def get_user_subscr(self, response: HtmlResponse, username, user_id, variables):
-        print()
+    def get_user_subscr(self, response: HtmlResponse, username, user_id, variables, date_load):
 
         data = response.json()
+        info = data['data']['user']['edge_followed_by']
+        subscr = info['edges']
+        for sub in subscr:
+            item = InstaparserItem()
+            item['user_id_parents'] = user_id
+            node = sub['node']
+            item['date_load'] = date_load
+            item['user_id'] = node["id"]
+            item['username'] = node['username']
+            item['full_name'] = node['full_name']
+            item['is_private'] = node['is_private']
+            item['is_verified'] = node['is_verified']
+            item['followed_by_viewer'] = node['followed_by_viewer']
+            item['follows_viewer'] = node['follows_viewer']
+            item['requested_by_viewer'] = node['requested_by_viewer']
+            yield item
+
+        page_info = info['page_info']
+        if page_info['has_next_page']:
+            variables['after'] = page_info['end_cursor']
+            str_variables = self.make_str_variables(variables)
+            url = f"{self.graphql_url}query_hash={self.subscribers_hash}&variables={str_variables}"
+            yield response.follow(
+                url,
+                callback=self.get_user_subscr,
+                cb_kwargs={
+                    "username": username,
+                    "user_id": user_id,
+                    # на будущее: изучите в чем отличие глубокого копирования
+                    "variables": deepcopy(variables),
+                    "date_load": date_load,
+                }
+            )
 
 
 
